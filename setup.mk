@@ -1,7 +1,7 @@
 include taki.env
 
 SHELL=/bin/bash
-REPO_NAME := isucon12-qualify
+REPO_NAME := isucon12-qualify-suburi-0730
 
 # ------------------------------------------------------------
 
@@ -112,15 +112,15 @@ setup/slackcat-oauth:
 	mkdir -p .config/slackcat
 
 setup/slackcat-oauth-config:
-	#rsync -avz .config/slackcat/config isucon@$(IP_BENCH):~/.config/slackcat/
+	rsync -avz .config/slackcat/config isucon@$(IP_BENCH):~/.config/slackcat/
 	rsync -avz .config/slackcat/config isucon@$(IP_A):~/.config/slackcat/
-	rsync -avz .config/slackcat/config isucon@$(IP_B):~/.config/slackcat/
-	rsync -avz .config/slackcat/config isucon@$(IP_C):~/.config/slackcat/
+	#rsync -avz .config/slackcat/config isucon@$(IP_B):~/.config/slackcat/
+	#rsync -avz .config/slackcat/config isucon@$(IP_C):~/.config/slackcat/
 
-	#ssh isucon@$(IP_BENCH) sudo cp .config/slackcat/config /root/.slackcat
+	ssh isucon@$(IP_BENCH) sudo cp .config/slackcat/config /root/.slackcat
 	ssh isucon@$(IP_A) sudo cp .config/slackcat/config /root/.slackcat
-	ssh isucon@$(IP_B) sudo cp .config/slackcat/config /root/.slackcat
-	ssh isucon@$(IP_C) sudo cp .config/slackcat/config /root/.slackcat
+	#ssh isucon@$(IP_B) sudo cp .config/slackcat/config /root/.slackcat
+	#ssh isucon@$(IP_C) sudo cp .config/slackcat/config /root/.slackcat
 
 setup/newrelic-cli:
 	curl -Ls https://download.newrelic.com/install/newrelic-cli/scripts/install.sh | bash && sudo NEW_RELIC_API_KEY=$(NEW_RELIC_API_KEY) NEW_RELIC_ACCOUNT_ID=3244867 /usr/local/bin/newrelic install

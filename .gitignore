@@ -2,3 +2,7 @@ taki.env
 .config/slackcat/config
 .slackcat
 ssh
+taki.env
+.config/slackcat/config
+.slackcat
+ssh
