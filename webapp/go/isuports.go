@@ -6,6 +6,9 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"github.com/felixge/fgprof"
+	"github.com/newrelic/go-agent/v3/integrations/nrecho-v4"
+	"github.com/newrelic/go-agent/v3/newrelic"
 	"io"
 	"net/http"
 	"os"
@@ -133,13 +136,30 @@ func SetCacheControlPrivate(next echo.HandlerFunc) echo.HandlerFunc {
 
 // Run は cmd/isuports/main.go から呼ばれるエントリーポイントです
 func Run() {
+	// ===================== pprof ===========================
+	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler())
+	go func() {
+		log.Fatal(http.ListenAndServe(":6060", nil))
+	}()
+	// ===================== pprof ===========================
+
 	e := echo.New()
 	e.Debug = true
 	e.Logger.SetLevel(log.DEBUG)
 
+	// ===================== log ===========================
+	logfile, err := os.OpenFile("/var/log/app/app.log", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0777)
+	if err != nil {
+		log.Fatalf("log file error: %v", err)
+	}
+	defer logfile.Close()
+	//e.Logger.SetLevel(log.DEBUG)
+	e.Logger.SetOutput(io.MultiWriter(logfile, os.Stdout))
+	// ===================== log ===========================
+
 	var (
 		sqlLogger io.Closer
-		err       error
+		//err       error
 	)
 	// sqliteのクエリログを出力する設定
 	// 環境変数 ISUCON_SQLITE_TRACE_FILE を設定すると、そのファイルにクエリログをJSON形式で出力する
@@ -151,9 +171,41 @@ func Run() {
 	}
 	defer sqlLogger.Close()
 
-	e.Use(middleware.Logger())
+	// ===================== log ===========================
+	//e.Use(middleware.Logger())
+	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "time:${time_rfc3339_nano}" +
+			"\tid:${id}" +
+			"\tremote_ip:${remote_ip}" +
+			"\thost:${host}" +
+			"\tmethod:${method}+" +
+			"\turi:${uri}" +
+			"\tua:${user_agent}" +
+			"\tstatus:${status}" +
+			"\terror:${error}" +
+			"\treqtime:${latency}" +
+			"\treqtime_human:${latency_human}" +
+			"\tbytes_in:${bytes_in}" +
+			"\tsize:${bytes_out}" +
+			"\trequest_id:${header:X-Request-Id}" + "\n",
+		CustomTimeFormat: "2006-01-02 15:04:05.00000",
+	}))
+	// ===================== log ===========================
+
+	//e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(SetCacheControlPrivate)
+
+	// ===================== newrelic ===========================
+	app, err := newrelic.NewApplication(
+		newrelic.ConfigAppName("isucon"),
+		newrelic.ConfigLicense(os.Getenv("NEWRELIC_LICENSE_KEY")),
+	)
+	if err != nil {
+		log.Fatalf("new relic error: %v", err)
+	}
+	e.Use(nrecho.Middleware(app))
+	// ===================== newrelic ===========================
 
 	// SaaS管理者向けAPI
 	e.POST("/api/admin/tenants/add", tenantsAddHandler)
