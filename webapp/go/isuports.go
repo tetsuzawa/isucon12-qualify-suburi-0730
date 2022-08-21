@@ -579,7 +579,7 @@ type VisitHistoryRow struct {
 	TenantID      int64  `db:"tenant_id"`
 	CompetitionID string `db:"competition_id"`
 	CreatedAt     int64  `db:"created_at"`
-	UpdatedAt     int64  `db:"updated_at"`
+	//UpdatedAt     int64  `db:"updated_at"`
 }
 
 type VisitHistorySummaryRow struct {
@@ -1392,12 +1392,16 @@ func competitionRankingHandler(c echo.Context) error {
 
 	if _, err := adminDB.ExecContext(
 		ctx,
-		"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-		v.playerID, tenant.ID, competitionID, now, now,
+		//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		//v.playerID, tenant.ID, competitionID, now, now,
+		"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at) VALUES (?, ?, ?, ?)",
+		v.playerID, tenant.ID, competitionID, now,
 	); err != nil {
 		return fmt.Errorf(
-			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
-			v.playerID, tenant.ID, competitionID, now, now, err,
+			//"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+			//v.playerID, tenant.ID, competitionID, now, now, err,
+			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, %w",
+			v.playerID, tenant.ID, competitionID, now, err,
 		)
 	}
 
