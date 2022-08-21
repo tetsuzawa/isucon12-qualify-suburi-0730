@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/felixge/fgprof"
-	"github.com/newrelic/go-agent/v3/integrations/nrecho-v4"
-	"github.com/newrelic/go-agent/v3/newrelic"
 	"io"
 	"net/http"
 	"os"
@@ -197,14 +195,14 @@ func Run() {
 	e.Use(SetCacheControlPrivate)
 
 	// ===================== newrelic ===========================
-	app, err := newrelic.NewApplication(
-		newrelic.ConfigAppName("isucon"),
-		newrelic.ConfigLicense(os.Getenv("NEWRELIC_LICENSE_KEY")),
-	)
-	if err != nil {
-		log.Fatalf("new relic error: %v", err)
-	}
-	e.Use(nrecho.Middleware(app))
+	//app, err := newrelic.NewApplication(
+	//	newrelic.ConfigAppName("isucon"),
+	//	newrelic.ConfigLicense(os.Getenv("NEWRELIC_LICENSE_KEY")),
+	//)
+	//if err != nil {
+	//	log.Fatalf("new relic error: %v", err)
+	//}
+	//e.Use(nrecho.Middleware(app))
 	// ===================== newrelic ===========================
 
 	// SaaS管理者向けAPI
