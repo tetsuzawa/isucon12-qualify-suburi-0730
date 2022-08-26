@@ -1394,7 +1394,7 @@ func competitionRankingHandler(c echo.Context) error {
 	err = adminDB.GetContext(
 		ctx,
 		&vh, `
-select player_id
+select * 
 from isuports.visit_history
 where player_id = ?
   and tenant_id = ?
@@ -1402,8 +1402,9 @@ where player_id = ?
 `,
 		v.playerID, tenant.ID, competitionID,
 	)
+	c.Logger().Debug(vh)
 	// min(created_at)がなければ挿入
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		if _, err := adminDB.ExecContext(
 			ctx,
 			//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
