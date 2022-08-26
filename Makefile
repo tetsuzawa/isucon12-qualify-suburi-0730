@@ -59,19 +59,19 @@ build-app:
 	$(MAKE) -C webapp/go $(APP_NAME)
 
 bench-a: build-app restart-a git-log-slackcat
-	echo "a OK ベンチ実行して" | $(SLACKCAT)
+	#echo "a OK ベンチ実行して" | $(SLACKCAT)
 
 bench-b: restart-b slow-off git-log-slackcat
-	echo "b OK ベンチ実行して" | $(SLACKCAT)
+	#echo "b OK ベンチ実行して" | $(SLACKCAT)
 
 bench-c: build-app restart-c git-log-slackcat
-	echo "c OK ベンチ実行して" | $(SLACKCAT)
+	#echo "c OK ベンチ実行して" | $(SLACKCAT)
 
 
 bench-prof-a: build-app restart-a slow-on git-log-slackcat
-	-echo "ベンチ実行して" | $(SLACKCAT)
-	$(MAKE) pprof
-	#$(MAKE) fgprof
+	#echo "ベンチ実行して" | $(SLACKCAT)
+	#$(MAKE) pprof
+	$(MAKE) fgprof
 
 bench-prof-b: restart-b slow-on git-log-slackcat
 	#$(MAKE) pprof
