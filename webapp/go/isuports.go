@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"github.com/felixge/fgprof"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/felixge/fgprof"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofrs/flock"
@@ -579,7 +580,7 @@ type VisitHistoryRow struct {
 	TenantID      int64  `db:"tenant_id"`
 	CompetitionID string `db:"competition_id"`
 	CreatedAt     int64  `db:"created_at"`
-	UpdatedAt     int64  `db:"updated_at"`
+	//UpdatedAt     int64  `db:"updated_at"`
 }
 
 type VisitHistorySummaryRow struct {
@@ -1390,16 +1391,36 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
 	}
 
+	// min(created_at)がなければ挿入
 	if _, err := adminDB.ExecContext(
 		ctx,
-		"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-		v.playerID, tenant.ID, competitionID, now, now,
+		//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		//v.playerID, tenant.ID, competitionID, now, now,
+		"INSERT IGNORE INTO visit_history (player_id, tenant_id, competition_id, created_at) VALUES (?, ?, ?, ?)",
+		v.playerID, tenant.ID, competitionID, now,
 	); err != nil {
 		return fmt.Errorf(
-			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
-			v.playerID, tenant.ID, competitionID, now, now, err,
+			//"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+			//v.playerID, tenant.ID, competitionID, now, now, err,
+			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, %w",
+			v.playerID, tenant.ID, competitionID, now, err,
 		)
 	}
+
+	//if _, err := adminDB.ExecContext(
+	//	ctx,
+	//	//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+	//	//v.playerID, tenant.ID, competitionID, now, now,
+	//	"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at) VALUES (?, ?, ?, ?)",
+	//	v.playerID, tenant.ID, competitionID, now,
+	//); err != nil {
+	//	return fmt.Errorf(
+	//		//"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+	//		//v.playerID, tenant.ID, competitionID, now, now, err,
+	//		"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, %w",
+	//		v.playerID, tenant.ID, competitionID, now, err,
+	//	)
+	//}
 
 	var rankAfter int64
 	rankAfterStr := c.QueryParam("rank_after")
