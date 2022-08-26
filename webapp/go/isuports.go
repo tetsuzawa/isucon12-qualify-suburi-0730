@@ -1394,7 +1394,7 @@ func competitionRankingHandler(c echo.Context) error {
 	err = adminDB.GetContext(
 		ctx,
 		&vh, `
-select 1
+select player_id
 from isuports.visit_history
 where player_id = ?
   and tenant_id = ?
