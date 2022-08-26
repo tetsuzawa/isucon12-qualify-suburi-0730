@@ -69,7 +69,7 @@ bench-c: build-app restart-c git-log-slackcat
 
 
 bench-prof-a: build-app restart-a slow-on git-log-slackcat
-	echo "ベンチ実行して" | $(SLACKCAT)
+	-echo "ベンチ実行して" | $(SLACKCAT)
 	$(MAKE) pprof
 	#$(MAKE) fgprof
 
