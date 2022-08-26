@@ -1527,6 +1527,15 @@ func competitionScoreHandler(c echo.Context) error {
 	}
 
 	// ==============================================
+	// player detail cache
+	for _, playerScore := range playerScoreRows {
+		pdCacheKey := fmt.Sprintf("%v-%v", playerScore.TenantID, playerScore.PlayerID)
+		playerDetailCache.Del(pdCacheKey)
+	}
+
+	// ==============================================
+
+	// ==============================================
 	// ranking cache
 	cacheKey := fmt.Sprintf("%v-%v", v.tenantID, competitionID)
 	keys := rankingCache.Keys()
@@ -1608,6 +1617,108 @@ type PlayerHandlerResult struct {
 // 参加者向けAPI
 // GET /api/player/player/:player_id
 // 参加者の詳細情報を取得する
+//func playerHandler(c echo.Context) error {
+//	ctx := context.Background()
+//
+//	v, err := parseViewer(c)
+//	if err != nil {
+//		return err
+//	}
+//	if v.role != RolePlayer {
+//		return echo.NewHTTPError(http.StatusForbidden, "role player required")
+//	}
+//
+//	tenantDB, err := connectToTenantDB(v.tenantID)
+//	if err != nil {
+//		return err
+//	}
+//	defer tenantDB.Close()
+//
+//	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
+//		return err
+//	}
+//
+//	playerID := c.Param("player_id")
+//	if playerID == "" {
+//		return echo.NewHTTPError(http.StatusBadRequest, "player_id is required")
+//	}
+//	p, err := retrievePlayer(ctx, tenantDB, playerID)
+//	if err != nil {
+//		if errors.Is(err, sql.ErrNoRows) {
+//			return echo.NewHTTPError(http.StatusNotFound, "player not found")
+//		}
+//		return fmt.Errorf("error retrievePlayer: %w", err)
+//	}
+//	cs := []CompetitionRow{}
+//	if err := tenantDB.SelectContext(
+//		ctx,
+//		&cs,
+//		"SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at ASC",
+//		v.tenantID,
+//	); err != nil && !errors.Is(err, sql.ErrNoRows) {
+//		return fmt.Errorf("error Select competition: %w", err)
+//	}
+//
+//	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
+//	//fl, err := flockByTenantID(v.tenantID)
+//	//if err != nil {
+//	//	return fmt.Errorf("error flockByTenantID: %w", err)
+//	//}
+//	//defer fl.Close()
+//	pss := make([]PlayerScoreRow, 0, len(cs))
+//	for _, c := range cs {
+//		ps := PlayerScoreRow{}
+//		if err := tenantDB.GetContext(
+//			ctx,
+//			&ps,
+//			// 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
+//			"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1",
+//			v.tenantID,
+//			c.ID,
+//			p.ID,
+//		); err != nil {
+//			// 行がない = スコアが記録されてない
+//			if errors.Is(err, sql.ErrNoRows) {
+//				continue
+//			}
+//			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, playerID=%s, %w", v.tenantID, c.ID, p.ID, err)
+//		}
+//		pss = append(pss, ps)
+//	}
+//
+//	psds := make([]PlayerScoreDetail, 0, len(pss))
+//	for _, ps := range pss {
+//		comp, err := retrieveCompetition(ctx, tenantDB, ps.CompetitionID)
+//		if err != nil {
+//			return fmt.Errorf("error retrieveCompetition: %w", err)
+//		}
+//		psds = append(psds, PlayerScoreDetail{
+//			CompetitionTitle: comp.Title,
+//			Score:            ps.Score,
+//		})
+//	}
+//
+//	res := SuccessResult{
+//		Status: true,
+//		Data: PlayerHandlerResult{
+//			Player: PlayerDetail{
+//				ID:             p.ID,
+//				DisplayName:    p.DisplayName,
+//				IsDisqualified: p.IsDisqualified,
+//			},
+//			Scores: psds,
+//		},
+//	}
+//	return c.JSON(http.StatusOK, res)
+//}
+
+var playerDetailCache = NewCacheExpired[string, SuccessResult]()
+
+// cacheする
+// key: tenantID, playerID
+// 参加者向けAPI
+// GET /api/player/player/:player_id
+// 参加者の詳細情報を取得する
 func playerHandler(c echo.Context) error {
 	ctx := context.Background()
 
@@ -1640,6 +1751,17 @@ func playerHandler(c echo.Context) error {
 		}
 		return fmt.Errorf("error retrievePlayer: %w", err)
 	}
+
+	// ===============================================================
+	// player detail cache, competition ごとのscore
+	cacheKey := fmt.Sprintf("%v-%v", v.tenantID, playerID)
+	cachedRes, ok := playerDetailCache.Get(cacheKey)
+	if ok {
+		return c.JSON(http.StatusOK, cachedRes)
+	}
+
+	// ===============================================================
+
 	cs := []CompetitionRow{}
 	if err := tenantDB.SelectContext(
 		ctx,
@@ -1700,6 +1822,12 @@ func playerHandler(c echo.Context) error {
 			Scores: psds,
 		},
 	}
+
+	// ===============================================================
+	// player detail cache, competition ごとのscore
+	playerDetailCache.Set(cacheKey, res, time.Now().Add(2500*time.Millisecond))
+	// ===============================================================
+
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -2274,4 +2402,52 @@ func (c *cache[K, V]) Keys() []K {
 	}
 	c.RUnlock()
 	return res
+}
+
+type expiredValue[V any] struct {
+	value  V
+	expire time.Time
+}
+
+type cacheExpired[K comparable, V any] struct {
+	sync.RWMutex
+	items map[K]expiredValue[V]
+}
+
+func NewCacheExpired[K comparable, V any]() *cacheExpired[K, V] {
+	c := &cacheExpired[K, V]{
+		items: make(map[K]expiredValue[V]),
+	}
+	return c
+}
+
+func (c *cacheExpired[K, V]) Set(key K, value V, expire time.Time) {
+	val := expiredValue[V]{
+		value:  value,
+		expire: expire,
+	}
+	c.Lock()
+	defer c.Unlock()
+	c.items[key] = val
+}
+
+func (c *cacheExpired[K, V]) Get(key K) (V, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	v, found := c.items[key]
+	if !found {
+		var zero V
+		return zero, false
+	}
+	if time.Now().After(v.expire) {
+		var zero V
+		return zero, false
+	}
+	return v.value, found
+}
+
+func (c *cacheExpired[K, V]) Del(key K) {
+	c.Lock()
+	delete(c.items, key)
+	c.Unlock()
 }
