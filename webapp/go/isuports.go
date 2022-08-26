@@ -1391,7 +1391,7 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 
 	vh := VisitHistoryRow{}
-	err := adminDB.GetContext(
+	err = adminDB.GetContext(
 		ctx,
 		&vh, `
 select 1
