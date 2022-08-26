@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"github.com/felixge/fgprof"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/felixge/fgprof"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofrs/flock"
@@ -1390,37 +1391,20 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
 	}
 
-	vh := VisitHistoryRow{}
-	err = adminDB.GetContext(
-		ctx,
-		&vh, `
-select * 
-from isuports.visit_history
-where player_id = ?
-  and tenant_id = ?
-  and competition_id = ?;
-`,
-		v.playerID, tenant.ID, competitionID,
-	)
-	c.Logger().Debug(vh)
 	// min(created_at)がなければ挿入
-	if errors.Is(err, sql.ErrNoRows) {
-		if _, err := adminDB.ExecContext(
-			ctx,
-			//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-			//v.playerID, tenant.ID, competitionID, now, now,
-			"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at) VALUES (?, ?, ?, ?)",
-			v.playerID, tenant.ID, competitionID, now,
-		); err != nil {
-			return fmt.Errorf(
-				//"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
-				//v.playerID, tenant.ID, competitionID, now, now, err,
-				"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, %w",
-				v.playerID, tenant.ID, competitionID, now, err,
-			)
-		}
-	} else if err != nil {
-		return fmt.Errorf("error Select visit history, %+v", err)
+	if _, err := adminDB.ExecContext(
+		ctx,
+		//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		//v.playerID, tenant.ID, competitionID, now, now,
+		"INSERT IGNORE INTO visit_history (player_id, tenant_id, competition_id, created_at) VALUES (?, ?, ?, ?)",
+		v.playerID, tenant.ID, competitionID, now,
+	); err != nil {
+		return fmt.Errorf(
+			//"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+			//v.playerID, tenant.ID, competitionID, now, now, err,
+			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, %w",
+			v.playerID, tenant.ID, competitionID, now, err,
+		)
 	}
 
 	//if _, err := adminDB.ExecContext(
