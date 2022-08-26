@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/felixge/fgprof"
@@ -1525,6 +1526,18 @@ func competitionScoreHandler(c echo.Context) error {
 		return fmt.Errorf("named exec error: %w", err)
 	}
 
+	// ==============================================
+	// ranking cache
+	cacheKey := fmt.Sprintf("%v-%v", v.tenantID, competitionID)
+	keys := rankingCache.Keys()
+	for _, k := range keys {
+		if strings.HasPrefix(k, cacheKey) {
+			rankingCache.Del(k)
+		}
+	}
+	//rankingCache.Del(cacheKey)
+	// ==============================================
+
 	tx.Commit()
 	return c.JSON(http.StatusOK, SuccessResult{
 		Status: true,
@@ -1706,6 +1719,164 @@ type CompetitionRankingHandlerResult struct {
 // 参加者向けAPI
 // GET /api/player/competition/:competition_id/ranking
 // 大会ごとのランキングを取得する
+//func competitionRankingHandler(c echo.Context) error {
+//	ctx := context.Background()
+//	v, err := parseViewer(c)
+//	if err != nil {
+//		return err
+//	}
+//	if v.role != RolePlayer {
+//		return echo.NewHTTPError(http.StatusForbidden, "role player required")
+//	}
+//
+//	tenantDB, err := connectToTenantDB(v.tenantID)
+//	if err != nil {
+//		return err
+//	}
+//	defer tenantDB.Close()
+//
+//	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
+//		return err
+//	}
+//
+//	competitionID := c.Param("competition_id")
+//	if competitionID == "" {
+//		return echo.NewHTTPError(http.StatusBadRequest, "competition_id is required")
+//	}
+//
+//	// 大会の存在確認
+//	competition, err := retrieveCompetition(ctx, tenantDB, competitionID)
+//	if err != nil {
+//		if errors.Is(err, sql.ErrNoRows) {
+//			return echo.NewHTTPError(http.StatusNotFound, "competition not found")
+//		}
+//		return fmt.Errorf("error retrieveCompetition: %w", err)
+//	}
+//
+//	now := time.Now().Unix()
+//	var tenant TenantRow
+//	if err := adminDB.GetContext(ctx, &tenant, "SELECT * FROM tenant WHERE id = ?", v.tenantID); err != nil {
+//		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
+//	}
+//
+//	// min(created_at)がなければ挿入
+//	if _, err := adminDB.ExecContext(
+//		ctx,
+//		//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+//		//v.playerID, tenant.ID, competitionID, now, now,
+//		"INSERT IGNORE INTO visit_history (player_id, tenant_id, competition_id, created_at) VALUES (?, ?, ?, ?)",
+//		v.playerID, tenant.ID, competitionID, now,
+//	); err != nil {
+//		return fmt.Errorf(
+//			//"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+//			//v.playerID, tenant.ID, competitionID, now, now, err,
+//			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, %w",
+//			v.playerID, tenant.ID, competitionID, now, err,
+//		)
+//	}
+//
+//	//if _, err := adminDB.ExecContext(
+//	//	ctx,
+//	//	//"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+//	//	//v.playerID, tenant.ID, competitionID, now, now,
+//	//	"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at) VALUES (?, ?, ?, ?)",
+//	//	v.playerID, tenant.ID, competitionID, now,
+//	//); err != nil {
+//	//	return fmt.Errorf(
+//	//		//"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+//	//		//v.playerID, tenant.ID, competitionID, now, now, err,
+//	//		"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, %w",
+//	//		v.playerID, tenant.ID, competitionID, now, err,
+//	//	)
+//	//}
+//
+//	var rankAfter int64
+//	rankAfterStr := c.QueryParam("rank_after")
+//	if rankAfterStr != "" {
+//		if rankAfter, err = strconv.ParseInt(rankAfterStr, 10, 64); err != nil {
+//			return fmt.Errorf("error strconv.ParseUint: rankAfterStr=%s, %w", rankAfterStr, err)
+//		}
+//	}
+//
+//	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
+//	//fl, err := flockByTenantID(v.tenantID)
+//	//if err != nil {
+//	//	return fmt.Errorf("error flockByTenantID: %w", err)
+//	//}
+//	//defer fl.Close()
+//	pss := []PlayerScoreRow{}
+//	if err := tenantDB.SelectContext(
+//		ctx,
+//		&pss,
+//		"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? ORDER BY row_num DESC",
+//		tenant.ID,
+//		competitionID,
+//	); err != nil {
+//		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
+//	}
+//	ranks := make([]CompetitionRank, 0, len(pss))
+//	scoredPlayerSet := make(map[string]struct{}, len(pss))
+//	for _, ps := range pss {
+//		// player_scoreが同一player_id内ではrow_numの降順でソートされているので
+//		// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
+//		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
+//			continue
+//		}
+//		scoredPlayerSet[ps.PlayerID] = struct{}{}
+//		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
+//		if err != nil {
+//			return fmt.Errorf("error retrievePlayer: %w", err)
+//		}
+//		ranks = append(ranks, CompetitionRank{
+//			Score:             ps.Score,
+//			PlayerID:          p.ID,
+//			PlayerDisplayName: p.DisplayName,
+//			RowNum:            ps.RowNum,
+//		})
+//	}
+//	sort.Slice(ranks, func(i, j int) bool {
+//		if ranks[i].Score == ranks[j].Score {
+//			return ranks[i].RowNum < ranks[j].RowNum
+//		}
+//		return ranks[i].Score > ranks[j].Score
+//	})
+//	pagedRanks := make([]CompetitionRank, 0, 100)
+//	for i, rank := range ranks {
+//		if int64(i) < rankAfter {
+//			continue
+//		}
+//		pagedRanks = append(pagedRanks, CompetitionRank{
+//			Rank:              int64(i + 1),
+//			Score:             rank.Score,
+//			PlayerID:          rank.PlayerID,
+//			PlayerDisplayName: rank.PlayerDisplayName,
+//		})
+//		if len(pagedRanks) >= 100 {
+//			break
+//		}
+//	}
+//
+//	res := SuccessResult{
+//		Status: true,
+//		Data: CompetitionRankingHandlerResult{
+//			Competition: CompetitionDetail{
+//				ID:         competition.ID,
+//				Title:      competition.Title,
+//				IsFinished: competition.FinishedAt.Valid,
+//			},
+//			Ranks: pagedRanks,
+//		},
+//	}
+//	return c.JSON(http.StatusOK, res)
+//}
+
+var rankingCache = NewCache[string, SuccessResult]()
+
+// cache score
+// key competition_id, tennant_id, rankafter_str
+// 参加者向けAPI
+// GET /api/player/competition/:competition_id/ranking
+// 大会ごとのランキングを取得する
 func competitionRankingHandler(c echo.Context) error {
 	ctx := context.Background()
 	v, err := parseViewer(c)
@@ -1785,6 +1956,17 @@ func competitionRankingHandler(c echo.Context) error {
 		}
 	}
 
+	// ========================================================
+	// cache
+
+	cacheKey := fmt.Sprintf("%v-%v-%v", v.tenantID, competitionID, rankAfterStr)
+	cachedRes, ok := rankingCache.Get(cacheKey)
+	if ok {
+		return c.JSON(http.StatusOK, cachedRes)
+	}
+
+	// ========================================================
+
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
 	//fl, err := flockByTenantID(v.tenantID)
 	//if err != nil {
@@ -1854,6 +2036,10 @@ func competitionRankingHandler(c echo.Context) error {
 			Ranks: pagedRanks,
 		},
 	}
+	// ========================================================
+	// cache
+	rankingCache.Set(cacheKey, res)
+	// ========================================================
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -2043,4 +2229,49 @@ func initializeHandler(c echo.Context) error {
 		Lang: "go",
 	}
 	return c.JSON(http.StatusOK, SuccessResult{Status: true, Data: res})
+}
+
+type cache[K comparable, V any] struct {
+	// Setが多いならsync.Mutex
+	sync.RWMutex
+	items map[K]V
+}
+
+func NewCache[K comparable, V any]() *cache[K, V] {
+	m := make(map[K]V)
+	c := &cache[K, V]{
+		items: m,
+	}
+	return c
+}
+
+func (c *cache[K, V]) Set(key K, value V) {
+	c.Lock()
+	c.items[key] = value
+	c.Unlock()
+}
+
+func (c *cache[K, V]) Get(key K) (V, bool) {
+	c.RLock()
+	v, found := c.items[key]
+	c.RUnlock()
+	return v, found
+}
+
+func (c *cache[K, V]) Del(key K) {
+	c.Lock()
+	delete(c.items, key)
+	c.Unlock()
+}
+
+func (c *cache[K, V]) Keys() []K {
+	c.RLock()
+	res := make([]K, len(c.items))
+	i := 0
+	for k, _ := range c.items {
+		res[i] = k
+		i++
+	}
+	c.RUnlock()
+	return res
 }
