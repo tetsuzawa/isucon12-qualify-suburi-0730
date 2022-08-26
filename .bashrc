@@ -116,5 +116,7 @@ if ! shopt -oq posix; then
   fi
 fi
 
+
+export PATH=$PATH:/home/isucon/go/bin
 export PATH=$PATH:/usr/local/go/bin
 export $(cat taki.env | grep -v ^#)
