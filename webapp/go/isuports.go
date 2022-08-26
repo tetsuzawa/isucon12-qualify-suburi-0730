@@ -1419,7 +1419,7 @@ where player_id = ?
 			)
 		}
 	} else if err != nil {
-		return fmt.Errorf("error Select visit history")
+		return fmt.Errorf("error Select visit history, %+v", err)
 	}
 
 	//if _, err := adminDB.ExecContext(
