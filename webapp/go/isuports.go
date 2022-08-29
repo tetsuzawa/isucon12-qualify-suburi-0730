@@ -79,15 +79,33 @@ func tenantDBPath(id int64) string {
 }
 
 // テナントDBに接続する
+//func connectToTenantDB(id int64) (*sqlx.DB, error) {
+//	p := tenantDBPath(id)
+//	db, err := sqlx.Open(sqliteDriverName, fmt.Sprintf("file:%s?mode=rw", p))
+//	if err != nil {
+//		return nil, fmt.Errorf("failed to open tenant DB: %w", err)
+//	}
+//	return db, nil
+//}
+
+// admindb返す
+// テナントDBに接続する
 func connectToTenantDB(id int64) (*sqlx.DB, error) {
-	p := tenantDBPath(id)
-	db, err := sqlx.Open(sqliteDriverName, fmt.Sprintf("file:%s?mode=rw", p))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open tenant DB: %w", err)
-	}
-	return db, nil
+	return adminDB, nil
 }
 
+// テナントDBを新規に作成する
+//func createTenantDB(id int64) error {
+//	p := tenantDBPath(id)
+//
+//	cmd := exec.Command("sh", "-c", fmt.Sprintf("sqlite3 %s < %s", p, tenantDBSchemaFilePath))
+//	if out, err := cmd.CombinedOutput(); err != nil {
+//		return fmt.Errorf("failed to exec sqlite3 %s < %s, out=%s: %w", p, tenantDBSchemaFilePath, string(out), err)
+//	}
+//	return nil
+//}
+
+// admindbに作る
 // テナントDBを新規に作成する
 func createTenantDB(id int64) error {
 	p := tenantDBPath(id)
@@ -536,15 +554,17 @@ func tenantsAddHandler(c echo.Context) error {
 	}
 
 	id, err := insertRes.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("error get LastInsertId: %w", err)
-	}
-	// NOTE: 先にadminDBに書き込まれることでこのAPIの処理中に
-	//       /api/admin/tenants/billingにアクセスされるとエラーになりそう
-	//       ロックなどで対処したほうが良さそう
-	if err := createTenantDB(id); err != nil {
-		return fmt.Errorf("error createTenantDB: id=%d name=%s %w", id, name, err)
-	}
+
+	// admin dbにtennant作るのでいらない
+	//if err != nil {
+	//	return fmt.Errorf("error get LastInsertId: %w", err)
+	//}
+	//// NOTE: 先にadminDBに書き込まれることでこのAPIの処理中に
+	////       /api/admin/tenants/billingにアクセスされるとエラーになりそう
+	////       ロックなどで対処したほうが良さそう
+	//if err := createTenantDB(id); err != nil {
+	//	return fmt.Errorf("error createTenantDB: id=%d name=%s %w", id, name, err)
+	//}
 
 	res := TenantsAddHandlerResult{
 		Tenant: TenantWithBilling{
@@ -727,7 +747,7 @@ func tenantsBillingHandler(c echo.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to connectToTenantDB: %w", err)
 			}
-			defer tenantDB.Close()
+			// defer tenantDB.Close()
 			cs := []CompetitionRow{}
 			if err := tenantDB.SelectContext(
 				ctx,
@@ -788,7 +808,7 @@ func playersListHandler(c echo.Context) error {
 	if err != nil {
 		return fmt.Errorf("error connectToTenantDB: %w", err)
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	var pls []PlayerRow
 	if err := tenantDB.SelectContext(
@@ -834,7 +854,7 @@ func playersAddHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	params, err := c.FormParams()
 	if err != nil {
@@ -897,7 +917,7 @@ func playerDisqualifiedHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	playerID := c.Param("player_id")
 
@@ -957,7 +977,7 @@ func competitionsAddHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	title := c.FormValue("title")
 
@@ -1003,7 +1023,7 @@ func competitionFinishHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	id := c.Param("competition_id")
 	if id == "" {
@@ -1053,7 +1073,7 @@ type ScoreHandlerResult struct {
 // 	if err != nil {
 // 		return err
 // 	}
-// 	defer tenantDB.Close()
+// 	// defer tenantDB.Close()
 
 // 	competitionID := c.Param("competition_id")
 // 	if competitionID == "" {
@@ -1204,7 +1224,7 @@ type ScoreHandlerResult struct {
 //	if err != nil {
 //		return err
 //	}
-//	defer tenantDB.Close()
+//	// defer tenantDB.Close()
 //
 //	competitionID := c.Param("competition_id")
 //	if competitionID == "" {
@@ -1369,7 +1389,7 @@ func competitionScoreHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	competitionID := c.Param("competition_id")
 	if competitionID == "" {
@@ -1575,7 +1595,7 @@ func billingHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	cs := []CompetitionRow{}
 	if err := tenantDB.SelectContext(
@@ -1632,7 +1652,7 @@ type PlayerHandlerResult struct {
 //	if err != nil {
 //		return err
 //	}
-//	defer tenantDB.Close()
+//	// defer tenantDB.Close()
 //
 //	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
 //		return err
@@ -1734,7 +1754,7 @@ func playerHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
 		return err
@@ -1861,7 +1881,7 @@ type CompetitionRankingHandlerResult struct {
 //	if err != nil {
 //		return err
 //	}
-//	defer tenantDB.Close()
+//	// defer tenantDB.Close()
 //
 //	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
 //		return err
@@ -2019,7 +2039,7 @@ func competitionRankingHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
 		return err
@@ -2193,7 +2213,7 @@ func playerCompetitionsHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
 		return err
@@ -2217,7 +2237,7 @@ func organizerCompetitionsHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tenantDB.Close()
+	// defer tenantDB.Close()
 
 	return competitionsHandler(c, v, tenantDB)
 }
