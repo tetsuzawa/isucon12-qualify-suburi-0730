@@ -603,36 +603,137 @@ type VisitHistoryRow struct {
 	//UpdatedAt     int64  `db:"updated_at"`
 }
 
+//type VisitHistorySummaryRow struct {
+//	PlayerID     string `db:"player_id"`
+//	MinCreatedAt int64  `db:"min_created_at"`
+//}
+
+// competitionIDを追加
 type VisitHistorySummaryRow struct {
 	PlayerID     string `db:"player_id"`
 	MinCreatedAt int64  `db:"min_created_at"`
+
+	Competition CompetitionRow `db:"competition"`
+
+	// competition
 }
 
 // 大会ごとの課金レポートを計算する
-func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
-	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
-	}
+//func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
+//	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
+//	if err != nil {
+//		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
+//	}
+//
+//	// ランキングにアクセスした参加者のIDを取得する
+//	vhs := []VisitHistorySummaryRow{}
+//	if err := adminDB.SelectContext(
+//		ctx,
+//		&vhs,
+//		"SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id",
+//		tenantID,
+//		comp.ID,
+//	); err != nil && err != sql.ErrNoRows {
+//		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
+//	}
+//	billingMap := map[string]string{}
+//	for _, vh := range vhs {
+//		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
+//		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
+//			continue
+//		}
+//		billingMap[vh.PlayerID] = "visitor"
+//	}
+//
+//	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
+//	//fl, err := flockByTenantID(tenantID)
+//	//if err != nil {
+//	//	return nil, fmt.Errorf("error flockByTenantID: %w", err)
+//	//}
+//	//defer fl.Close()
+//
+//	// スコアを登録した参加者のIDを取得する
+//	scoredPlayerIDs := []string{}
+//	if err := tenantDB.SelectContext(
+//		ctx,
+//		&scoredPlayerIDs,
+//		"SELECT DISTINCT(player_id) FROM player_score WHERE tenant_id = ? AND competition_id = ?",
+//		tenantID, comp.ID,
+//	); err != nil && err != sql.ErrNoRows {
+//		return nil, fmt.Errorf("error Select count player_score: tenantID=%d, competitionID=%s, %w", tenantID, competitonID, err)
+//	}
+//	for _, pid := range scoredPlayerIDs {
+//		// スコアが登録されている参加者
+//		billingMap[pid] = "player"
+//	}
+//
+//	// 大会が終了している場合のみ請求金額が確定するので計算する
+//	var playerCount, visitorCount int64
+//	if comp.FinishedAt.Valid {
+//		for _, category := range billingMap {
+//			switch category {
+//			case "player":
+//				playerCount++
+//			case "visitor":
+//				visitorCount++
+//			}
+//		}
+//	}
+//	return &BillingReport{
+//		CompetitionID:     comp.ID,
+//		CompetitionTitle:  comp.Title,
+//		PlayerCount:       playerCount,
+//		VisitorCount:      visitorCount,
+//		BillingPlayerYen:  100 * playerCount, // スコアを登録した参加者は100円
+//		BillingVisitorYen: 10 * visitorCount, // ランキングを閲覧だけした(スコアを登録していない)参加者は10円
+//		BillingYen:        100*playerCount + 10*visitorCount,
+//	}, nil
+//}
+
+type billingMapKey struct {
+	CompetitionID string `db:"competition_id"`
+	PlayerID      string `db:"player_id"`
+}
+
+type scoreCompetitionIDPlayerID struct {
+	CompetitionID    string `db:"competition_id"`
+	CompetitionTitle string `db:"competition_title"`
+	PlayerID         string `db:"player_id"`
+}
+
+// competitionIDはjoinで取って一括
+// 大会ごとの課金レポートを計算する
+func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64) ([]BillingReport, error) {
 
 	// ランキングにアクセスした参加者のIDを取得する
 	vhs := []VisitHistorySummaryRow{}
+	//PlayerID     string `db:"player_id"`
+	//MinCreatedAt int64  `db:"min_created_at"`
+	//ID         string        `db:"id"`
+	//Title      string        `db:"title"`
+	//FinishedAt sql.NullInt64 `db:"finished_at"`
 	if err := adminDB.SelectContext(
 		ctx,
 		&vhs,
-		"SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id",
+		"SELECT player_id, MIN(created_at), competition.id as `competition.id`, competition.title as `competition.title`, competition.finished_at as `competition.finished_at` AS min_created_at FROM visit_history JOIN competition ON competition.id = visit_history.competition_id WHERE tenant_id = ? GROUP BY player_id",
 		tenantID,
-		comp.ID,
 	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
+		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, %w", tenantID, err)
 	}
-	billingMap := map[string]string{}
+
+	// map[player id]valid or not
+	//billingMap := map[string]string{}
+
+	billingMap := map[billingMapKey]string{}
 	for _, vh := range vhs {
 		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
-		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
+		//if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
+		//	continue
+		//}
+		if vh.Competition.FinishedAt.Valid && vh.Competition.FinishedAt.Int64 < vh.MinCreatedAt {
 			continue
 		}
-		billingMap[vh.PlayerID] = "visitor"
+		billingMap[billingMapKey{vh.Competition.ID, vh.PlayerID}] = "visitor"
 	}
 
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
@@ -643,41 +744,83 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 	//defer fl.Close()
 
 	// スコアを登録した参加者のIDを取得する
-	scoredPlayerIDs := []string{}
+	//scoredPlayerIDs := []string{}
+	//if err := tenantDB.SelectContext(
+	//	ctx,
+	//	&scoredPlayerIDs,
+	//	"SELECT DISTINCT(player_id) FROM player_score WHERE tenant_id = ? AND competition_id = ?",
+	//	tenantID, comp.ID,
+	//); err != nil && err != sql.ErrNoRows {
+	//	return nil, fmt.Errorf("error Select count player_score: tenantID=%d, competitionID=%s, %w", tenantID, competitonID, err)
+	//}
+	//for _, pid := range scoredPlayerIDs {
+	//	// スコアが登録されている参加者
+	//	billingMap[pid] = "player"
+	//}
+	scoredPlayerIDs := []scoreCompetitionIDPlayerID{}
 	if err := tenantDB.SelectContext(
 		ctx,
 		&scoredPlayerIDs,
-		"SELECT DISTINCT(player_id) FROM player_score WHERE tenant_id = ? AND competition_id = ?",
-		tenantID, comp.ID,
+		"SELECT competition_id competition.title as competition_tittle, DISTINCT(player_id) FROM player_score JOIN competition ON player_score.competition_id = competition.id WHERE tenant_id = ?",
+		tenantID,
 	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select count player_score: tenantID=%d, competitionID=%s, %w", tenantID, competitonID, err)
+		return nil, fmt.Errorf("error Select count player_score: tenantID=%d, %w", tenantID, err)
 	}
-	for _, pid := range scoredPlayerIDs {
+	for _, scoredCompPlayerID := range scoredPlayerIDs {
 		// スコアが登録されている参加者
-		billingMap[pid] = "player"
+		billingMap[billingMapKey{CompetitionID: scoredCompPlayerID.CompetitionID, PlayerID: scoredCompPlayerID.PlayerID}] = "player"
+	}
+
+	var competitions []CompetitionRow
+	if err := tenantDB.SelectContext(ctx, &competitions, "SELCT * FROM competitions WHERE tennant_id = ?", tenantID); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("error Select competitions: tenantID=%d, %w", tenantID, err)
+	}
+
+	competitionMap := make(map[string]CompetitionRow)
+	for _, comp := range competitions {
+		competitionMap[comp.ID] = comp
+	}
+
+	// map[competitionId]count
+	competitionPlayerConut := make(map[string]int64)
+	competitionVisitorConut := make(map[string]int64)
+	for compPlayer, category := range billingMap {
+		switch category {
+		case "player":
+			competitionPlayerConut[compPlayer.CompetitionID]++
+		case "visitor":
+			competitionVisitorConut[compPlayer.CompetitionID]++
+		}
+	}
+
+	res := make([]BillingReport, 0, len(competitionPlayerConut))
+
+	for compID := range competitionPlayerConut {
+		billingReport := BillingReport{
+			CompetitionID:     compID,
+			CompetitionTitle:  competitionMap[compID].Title,
+			PlayerCount:       competitionPlayerConut[compID],
+			VisitorCount:      competitionVisitorConut[compID],
+			BillingPlayerYen:  100 * competitionPlayerConut[compID],
+			BillingVisitorYen: 10 * competitionVisitorConut[compID],
+			BillingYen:        100*competitionPlayerConut[compID] + 10*competitionVisitorConut[compID],
+		}
+		res = append(res, billingReport)
 	}
 
 	// 大会が終了している場合のみ請求金額が確定するので計算する
-	var playerCount, visitorCount int64
-	if comp.FinishedAt.Valid {
-		for _, category := range billingMap {
-			switch category {
-			case "player":
-				playerCount++
-			case "visitor":
-				visitorCount++
-			}
-		}
-	}
-	return &BillingReport{
-		CompetitionID:     comp.ID,
-		CompetitionTitle:  comp.Title,
-		PlayerCount:       playerCount,
-		VisitorCount:      visitorCount,
-		BillingPlayerYen:  100 * playerCount, // スコアを登録した参加者は100円
-		BillingVisitorYen: 10 * visitorCount, // ランキングを閲覧だけした(スコアを登録していない)参加者は10円
-		BillingYen:        100*playerCount + 10*visitorCount,
-	}, nil
+	//var playerCount, visitorCount int64
+	//if comp.FinishedAt.Valid {
+	//	for _, category := range billingMap {
+	//		switch category {
+	//		case "player":
+	//			playerCount++
+	//		case "visitor":
+	//			visitorCount++
+	//		}
+	//	}
+	//}
+	return res, nil
 }
 
 type TenantWithBilling struct {
@@ -691,6 +834,98 @@ type TenantsBillingHandlerResult struct {
 	Tenants []TenantWithBilling `json:"tenants"`
 }
 
+// SaaS管理者用API
+// テナントごとの課金レポートを最大10件、テナントのid降順で取得する
+// GET /api/admin/tenants/billing
+// URL引数beforeを指定した場合、指定した値よりもidが小さいテナントの課金レポートを取得する
+//func tenantsBillingHandler(c echo.Context) error {
+//	if host := c.Request().Host; host != getEnv("ISUCON_ADMIN_HOSTNAME", "admin.t.isucon.dev") {
+//		return echo.NewHTTPError(
+//			http.StatusNotFound,
+//			fmt.Sprintf("invalid hostname %s", host),
+//		)
+//	}
+//
+//	ctx := context.Background()
+//	if v, err := parseViewer(c); err != nil {
+//		return err
+//	} else if v.role != RoleAdmin {
+//		return echo.NewHTTPError(http.StatusForbidden, "admin role required")
+//	}
+//
+//	before := c.QueryParam("before")
+//	var beforeID int64
+//	if before != "" {
+//		var err error
+//		beforeID, err = strconv.ParseInt(before, 10, 64)
+//		if err != nil {
+//			return echo.NewHTTPError(
+//				http.StatusBadRequest,
+//				fmt.Sprintf("failed to parse query parameter 'before': %s", err.Error()),
+//			)
+//		}
+//	}
+//	// テナントごとに
+//	//   大会ごとに
+//	//     scoreが登録されているplayer * 100
+//	//     scoreが登録されていないplayerでアクセスした人 * 10
+//	//   を合計したものを
+//	// テナントの課金とする
+//	ts := []TenantRow{}
+//	if err := adminDB.SelectContext(ctx, &ts, "SELECT * FROM tenant ORDER BY id DESC"); err != nil {
+//		return fmt.Errorf("error Select tenant: %w", err)
+//	}
+//	tenantBillings := make([]TenantWithBilling, 0, len(ts))
+//	for _, t := range ts {
+//		if beforeID != 0 && beforeID <= t.ID {
+//			continue
+//		}
+//		err := func(t TenantRow) error {
+//			tb := TenantWithBilling{
+//				ID:          strconv.FormatInt(t.ID, 10),
+//				Name:        t.Name,
+//				DisplayName: t.DisplayName,
+//			}
+//			tenantDB, err := connectToTenantDB(t.ID)
+//			if err != nil {
+//				return fmt.Errorf("failed to connectToTenantDB: %w", err)
+//			}
+//			// defer tenantDB.Close()
+//			cs := []CompetitionRow{}
+//			if err := tenantDB.SelectContext(
+//				ctx,
+//				&cs,
+//				"SELECT * FROM competition WHERE tenant_id=?",
+//				t.ID,
+//			); err != nil {
+//				return fmt.Errorf("failed to Select competition: %w", err)
+//			}
+//			for _, comp := range cs {
+//				report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
+//				if err != nil {
+//					return fmt.Errorf("failed to billingReportByCompetition: %w", err)
+//				}
+//				tb.BillingYen += report.BillingYen
+//			}
+//			tenantBillings = append(tenantBillings, tb)
+//			return nil
+//		}(t)
+//		if err != nil {
+//			return err
+//		}
+//		if len(tenantBillings) >= 10 {
+//			break
+//		}
+//	}
+//	return c.JSON(http.StatusOK, SuccessResult{
+//		Status: true,
+//		Data: TenantsBillingHandlerResult{
+//			Tenants: tenantBillings,
+//		},
+//	})
+//}
+
+// competition join
 // SaaS管理者用API
 // テナントごとの課金レポートを最大10件、テナントのid降順で取得する
 // GET /api/admin/tenants/billing
@@ -748,20 +983,20 @@ func tenantsBillingHandler(c echo.Context) error {
 				return fmt.Errorf("failed to connectToTenantDB: %w", err)
 			}
 			// defer tenantDB.Close()
-			cs := []CompetitionRow{}
-			if err := tenantDB.SelectContext(
-				ctx,
-				&cs,
-				"SELECT * FROM competition WHERE tenant_id=?",
-				t.ID,
-			); err != nil {
-				return fmt.Errorf("failed to Select competition: %w", err)
+			//cs := []CompetitionRow{}
+			//if err := tenantDB.SelectContext(
+			//	ctx,
+			//	&cs,
+			//	"SELECT * FROM competition WHERE tenant_id=?",
+			//	t.ID,
+			//); err != nil {
+			//	return fmt.Errorf("failed to Select competition: %w", err)
+			//}
+			reports, err := billingReportByCompetition(ctx, tenantDB, t.ID)
+			if err != nil {
+				return fmt.Errorf("failed to billingReportByCompetition: %w", err)
 			}
-			for _, comp := range cs {
-				report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
-				if err != nil {
-					return fmt.Errorf("failed to billingReportByCompetition: %w", err)
-				}
+			for _, report := range reports {
 				tb.BillingYen += report.BillingYen
 			}
 			tenantBillings = append(tenantBillings, tb)
@@ -1581,6 +1816,53 @@ type BillingHandlerResult struct {
 // テナント管理者向けAPI
 // GET /api/organizer/billing
 // テナント内の課金レポートを取得する
+//func billingHandler(c echo.Context) error {
+//	ctx := context.Background()
+//	v, err := parseViewer(c)
+//	if err != nil {
+//		return fmt.Errorf("error parseViewer: %w", err)
+//	}
+//	if v.role != RoleOrganizer {
+//		return echo.NewHTTPError(http.StatusForbidden, "role organizer required")
+//	}
+//
+//	tenantDB, err := connectToTenantDB(v.tenantID)
+//	if err != nil {
+//		return err
+//	}
+//	// defer tenantDB.Close()
+//
+//	cs := []CompetitionRow{}
+//	if err := tenantDB.SelectContext(
+//		ctx,
+//		&cs,
+//		"SELECT * FROM competition WHERE tenant_id=? ORDER BY created_at DESC",
+//		v.tenantID,
+//	); err != nil {
+//		return fmt.Errorf("error Select competition: %w", err)
+//	}
+//	tbrs := make([]BillingReport, 0, len(cs))
+//	for _, comp := range cs {
+//		report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
+//		if err != nil {
+//			return fmt.Errorf("error billingReportByCompetition: %w", err)
+//		}
+//		tbrs = append(tbrs, *report)
+//	}
+//
+//	res := SuccessResult{
+//		Status: true,
+//		Data: BillingHandlerResult{
+//			Reports: tbrs,
+//		},
+//	}
+//	return c.JSON(http.StatusOK, res)
+//}
+
+// competition join
+// テナント管理者向けAPI
+// GET /api/organizer/billing
+// テナント内の課金レポートを取得する
 func billingHandler(c echo.Context) error {
 	ctx := context.Background()
 	v, err := parseViewer(c)
@@ -1597,22 +1879,27 @@ func billingHandler(c echo.Context) error {
 	}
 	// defer tenantDB.Close()
 
-	cs := []CompetitionRow{}
-	if err := tenantDB.SelectContext(
-		ctx,
-		&cs,
-		"SELECT * FROM competition WHERE tenant_id=? ORDER BY created_at DESC",
-		v.tenantID,
-	); err != nil {
-		return fmt.Errorf("error Select competition: %w", err)
-	}
-	tbrs := make([]BillingReport, 0, len(cs))
-	for _, comp := range cs {
-		report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
-		if err != nil {
-			return fmt.Errorf("error billingReportByCompetition: %w", err)
-		}
-		tbrs = append(tbrs, *report)
+	//cs := []CompetitionRow{}
+	//if err := tenantDB.SelectContext(
+	//	ctx,
+	//	&cs,
+	//	"SELECT * FROM competition WHERE tenant_id=? ORDER BY created_at DESC",
+	//	v.tenantID,
+	//); err != nil {
+	//	return fmt.Errorf("error Select competition: %w", err)
+	//}
+	//tbrs := make([]BillingReport, 0, len(cs))
+	//for _, comp := range cs {
+	//	report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
+	//	if err != nil {
+	//		return fmt.Errorf("error billingReportByCompetition: %w", err)
+	//	}
+	//	tbrs = append(tbrs, *report)
+	//}
+
+	tbrs, err := billingReportByCompetition(ctx, tenantDB, v.tenantID)
+	if err != nil {
+		return fmt.Errorf("error billingReportByCompetition: %w", err)
 	}
 
 	res := SuccessResult{
